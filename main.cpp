@@ -106,7 +106,8 @@ uint16_t TCP_checksum( uint8_t *value, uint32_t payload, IPH *ip, TCPH *tcp){
 
 uint16_t IP_checksum(IPH * ip){
     uint32_t ip_check_result;
-    ip_check_result = calculate((uint16_t *)ip, ntohs(ip->IHL * 4));
+    ip->HeaderCheck = 0x00;
+    ip_check_result = calculate((uint16_t *)ip, (ip->IHL * 4));
     ip->HeaderCheck = (uint16_t)(ntohs(~ip_check_result));
     cout << "IP_checksum done" << endl;
 }
@@ -142,9 +143,9 @@ static int cb(struct nfq_q_handle *qh, struct nfgenmsg *nfmsg,
         cout << "ip check success" << endl;
         cout << "Request after IP : " << endl;
         dump(value,20);
-        value += ip->IHL * 4;
-
+        value += (ip->IHL * 4);
         tcp = (TCPH *)value;
+        value += (tcp->Offset * 4);
         TCP_checksum(value, payload, ip, tcp);
         cout << "req tcp ok" << endl;
 
@@ -159,8 +160,9 @@ static int cb(struct nfq_q_handle *qh, struct nfgenmsg *nfmsg,
         cout << "res ip ok" << endl;
         cout << "Response after IP : " << endl;
         dump(value,20);
-        value += ip->IHL * 4;
+        value += (ip->IHL * 4);
         tcp = (TCPH *)value;
+        value += (tcp->Offset * 4);
         TCP_checksum(value, payload, ip, tcp);
         cout << "res tcp ok" << endl;
         verdict = 1;
