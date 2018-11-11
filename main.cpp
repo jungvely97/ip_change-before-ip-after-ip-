@@ -108,6 +108,7 @@ uint16_t IP_checksum(IPH * ip){
     uint32_t ip_check_result;
     ip_check_result = calculate((uint16_t *)ip, ntohs(ip->IHL * 4));
     ip->HeaderCheck = (uint16_t)(ntohs(~ip_check_result));
+    cout << "IP_checksum done" << endl;
 }
 
 static int cb(struct nfq_q_handle *qh, struct nfgenmsg *nfmsg,
@@ -124,24 +125,45 @@ static int cb(struct nfq_q_handle *qh, struct nfgenmsg *nfmsg,
     map<uint32_t, uint32_t> reverse;
     map<uint32_t, uint32_t>::iterator iter;
 
-    m.insert(make_pair(before_ip, after_ip));
-    reverse[after_ip] = before_ip;
+    //m.insert(make_pair(before_ip, after_ip));
+    m[before_ip] = after_ip;
+
     packet_hdr = nfq_get_msg_packet_hdr(nfa);
     id = ntohl(packet_hdr->packet_id);
     payload = nfq_get_payload(nfa, &value);
     ip = (IPH *)value;
-    cout << 0123 << endl;
-    cout << 12 <<endl;
-   // if(m.find(before_ip) != m.end()){
-    if(ip->DstAdd == (m.find(before_ip) != m.end())){
-        cout << 111 << endl;
+    iter = m.find(before_ip);
+    //if(m.find(before_ip) != m.end()){
+    if(ip->DstAdd == iter->first){
+        cout << "Request before IP : " << endl;
+        dump(value,20);
+        ip->DstAdd = iter->second;
         IP_checksum(ip);
+        cout << "ip check success" << endl;
+        cout << "Request after IP : " << endl;
+        dump(value,20);
+        value += ip->IHL * 4;
+
+        tcp = (TCPH *)value;
+        TCP_checksum(value, payload, ip, tcp);
+        cout << "req tcp ok" << endl;
+
+        verdict = 1;       
+    }
+    if(ip->SrcAdd == iter->second){
+        cout << "Response before IP : " << endl;
+        dump(value,20);
+        ip->SrcAdd = iter->first;
+        cout << "catch response" << endl;
+        IP_checksum(ip);
+        cout << "res ip ok" << endl;
+        cout << "Response after IP : " << endl;
+        dump(value,20);
         value += ip->IHL * 4;
         tcp = (TCPH *)value;
         TCP_checksum(value, payload, ip, tcp);
+        cout << "res tcp ok" << endl;
         verdict = 1;
-
-        m.swap(reverse);
     }
 
     if(verdict){
