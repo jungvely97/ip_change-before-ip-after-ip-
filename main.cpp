@@ -10,7 +10,6 @@
 #include <string.h>
 #include <string>
 #include <iostream>
-#include <map>
 #include <arpa/inet.h>
 
 using namespace std;
@@ -109,7 +108,14 @@ uint16_t IP_checksum(IPH * ip){
     ip->HeaderCheck = 0x00;
     ip_check_result = calculate((uint16_t *)ip, (ip->IHL * 4));
     ip->HeaderCheck = (uint16_t)(ntohs(~ip_check_result));
-    cout << "IP_checksum done" << endl;
+}
+
+void Process(uint8_t *value, uint32_t payload, IPH *ip, TCPH *tcp){
+    IP_checksum(ip);
+    value += (ip->IHL * 4);
+    tcp = (TCPH *)value;
+    value += (tcp->Offset * 4);
+    TCP_checksum(value, payload, ip, tcp);
 }
 
 static int cb(struct nfq_q_handle *qh, struct nfgenmsg *nfmsg,
@@ -122,55 +128,25 @@ static int cb(struct nfq_q_handle *qh, struct nfgenmsg *nfmsg,
     IPH *ip;
     TCPH *tcp;
     bool verdict = false;
-    map<uint32_t, uint32_t> m;
-    map<uint32_t, uint32_t> reverse;
-    map<uint32_t, uint32_t>::iterator iter;
-
-    //m.insert(make_pair(before_ip, after_ip));
-    m[before_ip] = after_ip;
 
     packet_hdr = nfq_get_msg_packet_hdr(nfa);
     id = ntohl(packet_hdr->packet_id);
     payload = nfq_get_payload(nfa, &value);
     ip = (IPH *)value;
-    iter = m.find(before_ip);
-    //if(m.find(before_ip) != m.end()){
-    if(ip->DstAdd == iter->first){
-        cout << "Request before IP : " << endl;
-        dump(value,20);
-        ip->DstAdd = iter->second;
-        IP_checksum(ip);
-        cout << "ip check success" << endl;
-        cout << "Request after IP : " << endl;
-        dump(value,20);
-        value += (ip->IHL * 4);
-        tcp = (TCPH *)value;
-        value += (tcp->Offset * 4);
-        TCP_checksum(value, payload, ip, tcp);
-        cout << "req tcp ok" << endl;
 
-        verdict = 1;       
+    if(ip->DstAdd == before_ip){
+        ip->DstAdd = after_ip;
+        Process(value, payload, ip, tcp);
+        verdict = true;
     }
-    if(ip->SrcAdd == iter->second){
-        cout << "Response before IP : " << endl;
-        dump(value,20);
-        ip->SrcAdd = iter->first;
-        cout << "catch response" << endl;
-        IP_checksum(ip);
-        cout << "res ip ok" << endl;
-        cout << "Response after IP : " << endl;
-        dump(value,20);
-        value += (ip->IHL * 4);
-        tcp = (TCPH *)value;
-        value += (tcp->Offset * 4);
-        TCP_checksum(value, payload, ip, tcp);
-        cout << "res tcp ok" << endl;
-        verdict = 1;
+    if(ip->SrcAdd == after_ip){
+        ip->SrcAdd =before_ip;
+        Process(value, payload, ip, tcp);
+        verdict = true;
     }
 
     if(verdict){
         printf("success!\n");
-        value = value - (ip->IHL *4 + tcp->Offset * 4);
         return nfq_set_verdict(qh, id, NF_ACCEPT, payload, value);
     }else return nfq_set_verdict(qh, id, NF_ACCEPT, 0, NULL);
 
